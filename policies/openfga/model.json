@@ -1,0 +1,78 @@
+{
+  "schema_version": "1.1",
+  "type_definitions": [
+    {
+      "type": "user"
+    },
+    {
+      "type": "device",
+      "relations": {
+        "operator": {
+          "this": {}
+        },
+        "technician": {
+          "this": {}
+        },
+        "viewer": {
+          "this": {}
+        },
+        "can_read": {
+          "union": {
+            "child": [
+              {
+                "computedUserset": {
+                  "relation": "operator"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "technician"
+                }
+              },
+              {
+                "computedUserset": {
+                  "relation": "viewer"
+                }
+              }
+            ]
+          }
+        },
+        "can_start": {
+          "computedUserset": {
+            "relation": "operator"
+          }
+        },
+        "can_maintain": {
+          "computedUserset": {
+            "relation": "technician"
+          }
+        }
+      },
+      "metadata": {
+        "relations": {
+          "operator": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "technician": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          },
+          "viewer": {
+            "directly_related_user_types": [
+              {
+                "type": "user"
+              }
+            ]
+          }
+        }
+      }
+    }
+  ]
+}
