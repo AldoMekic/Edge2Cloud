@@ -4,7 +4,7 @@ services:
     build: ./edge/pep
     container_name: mvp-edge
     ports:
-      - "8001:8000"
+      - "127.0.0.1:8001:8000"
     networks:
       - edge-network
       - edge-cloud-link
@@ -13,13 +13,60 @@ services:
     build: ./cloud/pip_stage2
     container_name: mvp-cloud
     ports:
-      - "8002:8000"
+      - "127.0.0.1:8002:8000"
+    networks:
+      - cloud-network
+      - edge-cloud-link
+
+  postgres:
+    image: postgres:17
+    container_name: mvp-postgres
+    environment:
+      POSTGRES_USER: openfga
+      POSTGRES_PASSWORD: mvp_local_password
+      POSTGRES_DB: openfga
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - cloud-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openfga -d openfga"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  openfga-migrate:
+    image: openfga/openfga:v1.20.0
+    container_name: mvp-openfga-migrate
+    command: migrate
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:mvp_local_password@postgres:5432/openfga?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - cloud-network
+    restart: "no"
+
+  openfga:
+    image: openfga/openfga:v1.20.0
+    container_name: mvp-openfga
+    command: run
+    environment:
+      OPENFGA_DATASTORE_ENGINE: postgres
+      OPENFGA_DATASTORE_URI: postgres://openfga:mvp_local_password@postgres:5432/openfga?sslmode=disable
+      OPENFGA_PLAYGROUND_ENABLED: "false"
+    depends_on:
+      openfga-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8080:8080"
     networks:
       - cloud-network
       - edge-cloud-link
 
 networks:
-
   edge-network:
     internal: true
 
@@ -28,3 +75,6 @@ networks:
 
   edge-cloud-link:
     driver: bridge
+
+volumes:
+  postgres_data:
