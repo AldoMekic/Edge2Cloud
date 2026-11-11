@@ -2,8 +2,29 @@ import json
 import os
 import urllib.request
 import urllib.error
+from pathlib import Path
 
-FGA_URL = "http://localhost:8080"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+ENV_FILE = PROJECT_ROOT / ".env"
+
+if ENV_FILE.exists():
+    for line in ENV_FILE.read_text().splitlines():
+        line = line.strip()
+
+        if not line or line.startswith("#"):
+            continue
+
+        key, separator, value = line.partition("=")
+
+        if separator:
+            os.environ.setdefault(
+                key.strip(),
+                value.strip().strip('"').strip("'")
+            )
+
+
+FGA_URL = os.getenv("FGA_URL", "http://localhost:8080")
 STORE_ID = os.environ["FGA_STORE_ID"]
 MODEL_ID = os.environ["FGA_MODEL_ID"]
 
