@@ -70,6 +70,41 @@ services:
       - cloud-network
       - edge-cloud-link
 
+  redis:
+    image: redis:7.4-alpine
+    container_name: mvp-redis
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    networks:
+      - edge-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  pip-stage1:
+    build: ./edge/pip_stage1
+    container_name: mvp-pip-stage1
+    ports:
+      - "127.0.0.1:8003:8000"
+    environment:
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      CLOUD_PIP_URL: http://cloud-service:8000
+      CACHE_TTL_SECONDS: "5"
+      FGA_MODEL_ID: ${FGA_MODEL_ID:?FGA_MODEL_ID is required}
+    depends_on:
+      redis:
+        condition: service_healthy
+      cloud-service:
+        condition: service_started
+    networks:
+      - edge-network
+      - edge-cloud-link
+
+
+
+
 networks:
   edge-network:
     internal: true
