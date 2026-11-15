@@ -1,3 +1,4 @@
+
 services:
 
   edge-service:
@@ -18,6 +19,9 @@ services:
       FGA_URL: http://openfga:8080
       FGA_STORE_ID: ${FGA_STORE_ID:?FGA_STORE_ID is required}
       FGA_MODEL_ID: ${FGA_MODEL_ID:?FGA_MODEL_ID is required}
+    depends_on:
+      openfga:
+        condition: service_started
     networks:
       - cloud-network
       - edge-cloud-link
@@ -27,14 +31,18 @@ services:
     container_name: mvp-postgres
     environment:
       POSTGRES_USER: openfga
-      POSTGRES_PASSWORD: mvp_local_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mvp_local_password}
       POSTGRES_DB: openfga
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - cloud-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U openfga -d openfga"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U openfga -d openfga"
+        ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -45,7 +53,7 @@ services:
     command: migrate
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
-      OPENFGA_DATASTORE_URI: postgres://openfga:mvp_local_password@postgres:5432/openfga?sslmode=disable
+      OPENFGA_DATASTORE_URI: postgres://openfga:${POSTGRES_PASSWORD:-mvp_local_password}@postgres:5432/openfga?sslmode=disable
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,7 +67,7 @@ services:
     command: run
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
-      OPENFGA_DATASTORE_URI: postgres://openfga:mvp_local_password@postgres:5432/openfga?sslmode=disable
+      OPENFGA_DATASTORE_URI: postgres://openfga:${POSTGRES_PASSWORD:-mvp_local_password}@postgres:5432/openfga?sslmode=disable
       OPENFGA_PLAYGROUND_ENABLED: "false"
     depends_on:
       openfga-migrate:
@@ -73,7 +81,12 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: mvp-redis
-    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    command:
+      - redis-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
     networks:
       - edge-network
     healthcheck:
@@ -104,8 +117,26 @@ services:
 
 
 
+  local-pdp:
+    build: ./edge/pdp
+    container_name: mvp-local-pdp
+    ports:
+      - "127.0.0.1:8004:8000"
+    environment:
+      LOCAL_PIP_URL: http://pip-stage1:8000
+      POLICY_DIR: /app/policies
+    volumes:
+      - ./policies/odrl:/app/policies:ro
+    depends_on:
+      pip-stage1:
+        condition: service_started
+    networks:
+      - edge-network
+      - edge-host-access
+
 
 networks:
+
   edge-network:
     internal: true
 
@@ -115,5 +146,10 @@ networks:
   edge-cloud-link:
     driver: bridge
 
+  edge-host-access:
+    driver: bridge
+
+
 volumes:
+
   postgres_data:

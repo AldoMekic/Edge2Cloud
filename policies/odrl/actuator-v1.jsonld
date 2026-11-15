@@ -1,0 +1,46 @@
+
+{
+  "@context": [
+    "http://www.w3.org/ns/odrl.jsonld",
+    {
+      "edge": "https://example.org/edge2cloud/odrl#"
+    }
+  ],
+  "@type": "Set",
+  "uid": "urn:edge2cloud:policy:actuator-001:v1",
+  "profile": "https://example.org/edge2cloud/odrl-profile/v1",
+  "edge:version": "v1",
+  "permission": [
+    {
+      "target": "device:actuator-001",
+      "action": "edge:read",
+      "edge:requiredRelation": "can_read"
+    },
+    {
+      "target": "device:actuator-001",
+      "action": "edge:start",
+      "edge:requiredRelation": "can_start",
+      "constraint": [
+        {
+          "leftOperand": "dateTime",
+          "operator": "lt",
+          "rightOperand": {
+            "@value": "2099-01-01T00:00:00Z",
+            "@type": "xsd:dateTime"
+          }
+        }
+      ]
+    },
+    {
+      "target": "device:actuator-001",
+      "action": "edge:maintain",
+      "edge:requiredRelation": "can_maintain"
+    }
+  ],
+  "prohibition": [
+    {
+      "target": "device:actuator-001",
+      "action": "edge:delete"
+    }
+  ]
+}
