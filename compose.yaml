@@ -39,10 +39,8 @@ services:
       - cloud-network
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U openfga -d openfga"
-        ]
+        - CMD-SHELL
+        - pg_isready -U openfga -d openfga
       interval: 5s
       timeout: 5s
       retries: 10
@@ -51,6 +49,7 @@ services:
     image: openfga/openfga:v1.20.0
     container_name: mvp-openfga-migrate
     command: migrate
+    restart: "no"
     environment:
       OPENFGA_DATASTORE_ENGINE: postgres
       OPENFGA_DATASTORE_URI: postgres://openfga:${POSTGRES_PASSWORD:-mvp_local_password}@postgres:5432/openfga?sslmode=disable
@@ -59,7 +58,6 @@ services:
         condition: service_healthy
     networks:
       - cloud-network
-    restart: "no"
 
   openfga:
     image: openfga/openfga:v1.20.0
@@ -115,29 +113,6 @@ services:
       - edge-network
       - edge-cloud-link
 
-
-
-  local-pdp:
-    build: ./edge/pdp
-    container_name: mvp-local-pdp
-    ports:
-      - "127.0.0.1:8004:8000"
-    environment:
-      LOCAL_PIP_URL: http://pip-stage1:8000
-      DIGITAL_TWIN_URL: http://digital-twin:8000
-      DT_MAX_AGE_SECONDS: "10"
-      POLICY_DIR: /app/policies
-    volumes:
-      - ./policies/odrl:/app/policies:ro
-    depends_on:
-      pip-stage1:
-        condition: service_started
-      digital-twin:
-        condition: service_started
-    networks:
-      - edge-network
-      - edge-host-access
-  
   mqtt:
     image: eclipse-mosquitto:2
     container_name: mvp-mqtt
@@ -145,13 +120,6 @@ services:
       - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
     networks:
       - edge-network
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1
-      interval: 10s
-      timeout: 5s
-      retries: 5
 
   digital-twin:
     build: ./edge/digital_twin
@@ -190,6 +158,45 @@ services:
         condition: service_started
     networks:
       - edge-network
+
+  ai-prefetch:
+    build: ./edge/ai_prefetch
+    container_name: mvp-ai-prefetch
+    ports:
+      - "127.0.0.1:8006:8000"
+    environment:
+      LOCAL_PIP_URL: http://pip-stage1:8000
+      PREFETCH_CONFIDENCE_THRESHOLD: "0.55"
+    depends_on:
+      pip-stage1:
+        condition: service_started
+    networks:
+      - edge-network
+      - edge-host-access
+
+  local-pdp:
+    build: ./edge/pdp
+    container_name: mvp-local-pdp
+    ports:
+      - "127.0.0.1:8004:8000"
+    environment:
+      LOCAL_PIP_URL: http://pip-stage1:8000
+      DIGITAL_TWIN_URL: http://digital-twin:8000
+      AI_PREFETCH_URL: http://ai-prefetch:8000
+      DT_MAX_AGE_SECONDS: "10"
+      POLICY_DIR: /app/policies
+    volumes:
+      - ./policies/odrl:/app/policies:ro
+    depends_on:
+      pip-stage1:
+        condition: service_started
+      digital-twin:
+        condition: service_started
+      ai-prefetch:
+        condition: service_started
+    networks:
+      - edge-network
+      - edge-host-access
 
 
 networks:

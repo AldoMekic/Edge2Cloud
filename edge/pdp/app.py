@@ -1,6 +1,19 @@
 
+"""Edge2Cloud Local PDP.
+
+Combines:
+- ODRL policy evaluation
+- OpenFGA relationship evidence via PIP Stage 1
+- Digital Twin context
+
+Completed decisions may generate asynchronous
+AI prefetch observations. AI never changes a decision.
+"""
+
 import json
 import os
+import queue
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -32,6 +45,11 @@ DT_URL = os.getenv(
     "http://digital-twin:8000"
 )
 
+AI_URL = os.getenv(
+    "AI_PREFETCH_URL",
+    "http://ai-prefetch:8000"
+)
+
 POLICY_DIR = Path(
     os.getenv("POLICY_DIR", "/app/policies")
 )
@@ -41,6 +59,72 @@ DT_MAX_AGE = float(
 )
 
 MAX_SIZE = 65536
+
+# A bounded queue prevents request handling from
+# blocking on the AI service.
+observation_queue = queue.Queue(maxsize=128)
+
+
+def observation_worker():
+    """Send completed PDP observations asynchronously."""
+
+    while True:
+        payload = observation_queue.get()
+
+        try:
+            request = urllib.request.Request(
+                f"{AI_URL}/observe",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json"
+                },
+                method="POST"
+            )
+
+            with urllib.request.urlopen(
+                request,
+                timeout=8
+            ) as response:
+                result = json.load(response)
+
+            print(
+                f"AI observation: "
+                f"{result.get('prefetch_status')}",
+                flush=True
+            )
+
+        except Exception as exc:
+            # An AI failure never changes a PDP decision.
+            print(
+                f"AI observation failed: {exc}",
+                flush=True
+            )
+
+        finally:
+            observation_queue.task_done()
+
+
+def queue_observation(user, resource, action, result):
+    if (
+        result.get("decision") not in ("ALLOW", "DENY")
+        or not result.get("relationship")
+    ):
+        return
+
+    payload = {
+        "user": user,
+        "resource": resource,
+        "action": action,
+        "decision": result["decision"]
+    }
+
+    try:
+        observation_queue.put_nowait(payload)
+    except queue.Full:
+        print(
+            "AI observation queue full; event dropped",
+            flush=True
+        )
 
 
 def read_policy(resource):
@@ -82,12 +166,15 @@ def fetch_relation(user, relation, resource):
     request = urllib.request.Request(
         f"{PIP_URL}/resolve-relationship",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json"
+        },
         method="POST"
     )
 
     with urllib.request.urlopen(
-        request, timeout=7
+        request,
+        timeout=7
     ) as response:
         result = json.load(response)
 
@@ -100,7 +187,9 @@ def fetch_relation(user, relation, resource):
         or type(result.get("allowed")) is not bool
         or type(result.get("cache_hit")) is not bool
         or type(result.get("cloud_fallback")) is not bool
-        or not isinstance(result.get("model_version"), str)
+        or not isinstance(
+            result.get("model_version"), str
+        )
     ):
         raise ValueError("Invalid PIP evidence")
 
@@ -119,7 +208,8 @@ def fetch_device_context(resource):
     )
 
     with urllib.request.urlopen(
-        url, timeout=3
+        url,
+        timeout=3
     ) as response:
         result = json.load(response)
 
@@ -136,7 +226,6 @@ def fetch_device_context(resource):
     ):
         raise ValueError("Invalid Digital Twin observation")
 
-    # Recheck freshness at the PDP using trusted local time.
     source_time = parse_instant(
         result["source_timestamp"]
     )
@@ -185,8 +274,12 @@ def evaluate(user, resource, action):
             }
 
     except (
-        PolicyError, ValueError, OSError,
-        KeyError, TypeError, json.JSONDecodeError
+        PolicyError,
+        ValueError,
+        OSError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError
     ):
         return {
             "decision": "INDETERMINATE",
@@ -195,7 +288,9 @@ def evaluate(user, resource, action):
 
     try:
         evidence = fetch_relation(
-            user, relation, resource
+            user,
+            relation,
+            resource
         )
 
     except (
@@ -228,20 +323,22 @@ def evaluate(user, resource, action):
             "reason": "RELATIONSHIP_FALSE"
         }
 
-    # Identify applicable permission rules.
     permissions = applicable_rules(
-        policy, "permission", resource, action, now
+        policy,
+        "permission",
+        resource,
+        action,
+        now
     )
 
-    # All applicable rules have the same required
-    # ReBAC relation under this restricted profile.
     context_results = []
     context_details = None
     context_unknown = False
 
     for rule in permissions:
         requirements = rule.get(
-            "edge:requiredContext", []
+            "edge:requiredContext",
+            []
         )
 
         if not requirements:
@@ -249,19 +346,26 @@ def evaluate(user, resource, action):
             continue
 
         try:
-            observation = fetch_device_context(resource)
+            observation = fetch_device_context(
+                resource
+            )
 
             satisfied = evaluate_context_requirements(
-                requirements, observation
+                requirements,
+                observation
             )
 
             context_results.append(satisfied)
 
             context_details = {
                 "device_state": observation["state"],
-                "device_temperature": observation["temperature"],
+                "device_temperature": observation[
+                    "temperature"
+                ],
                 "dt_sequence": observation["sequence"],
-                "dt_age_seconds": observation["age_seconds"]
+                "dt_age_seconds": observation[
+                    "age_seconds"
+                ]
             }
 
         except (
@@ -304,9 +408,14 @@ class Handler(BaseHTTPRequestHandler):
 
     def send_json(self, data, status=200):
         body = json.dumps(data).encode("utf-8")
+
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
+        self.send_header(
+            "Content-Type", "application/json"
+        )
+        self.send_header(
+            "Content-Length", str(len(body))
+        )
         self.end_headers()
         self.wfile.write(body)
 
@@ -317,16 +426,25 @@ class Handler(BaseHTTPRequestHandler):
                 "status": "running"
             })
         else:
-            self.send_json({"error": "not found"}, 404)
+            self.send_json(
+                {"error": "not found"},
+                404
+            )
 
     def do_POST(self):
         if self.path != "/evaluate":
-            self.send_json({"error": "not found"}, 404)
+            self.send_json(
+                {"error": "not found"},
+                404
+            )
             return
 
         try:
             length = int(
-                self.headers.get("Content-Length", "0")
+                self.headers.get(
+                    "Content-Length",
+                    "0"
+                )
             )
 
             if length <= 0 or length > MAX_SIZE:
@@ -355,21 +473,28 @@ class Handler(BaseHTTPRequestHandler):
                     not isinstance(value, str)
                     or not 0 < len(value) <= 256
                 ):
-                    raise ValueError(f"Invalid {name}")
+                    raise ValueError(
+                        f"Invalid {name}"
+                    )
 
             if (
                 not data["user"].startswith("user:")
                 or not data["resource"].startswith("device:")
                 or not data["action"].startswith("edge:")
             ):
-                raise ValueError("Unsupported identifiers")
+                raise ValueError(
+                    "Unsupported identifiers"
+                )
 
         except (
             ValueError,
             UnicodeDecodeError,
             json.JSONDecodeError
         ) as exc:
-            self.send_json({"error": str(exc)}, 400)
+            self.send_json(
+                {"error": str(exc)},
+                400
+            )
             return
 
         start = time.perf_counter()
@@ -385,8 +510,17 @@ class Handler(BaseHTTPRequestHandler):
             3
         )
 
+        # Do not await any AI computation.
+        queue_observation(
+            data["user"],
+            data["resource"],
+            data["action"],
+            result
+        )
+
         status = (
-            200 if result["decision"] != "INDETERMINATE"
+            200
+            if result["decision"] != "INDETERMINATE"
             else 503
         )
 
@@ -395,6 +529,12 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print("Local PDP starting...", flush=True)
+
+    threading.Thread(
+        target=observation_worker,
+        name="ai-observation-worker",
+        daemon=True
+    ).start()
 
     ThreadingHTTPServer(
         ("0.0.0.0", 8000),
