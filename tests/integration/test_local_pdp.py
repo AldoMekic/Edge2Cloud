@@ -21,7 +21,7 @@ TEST_CASES = [
         "user:operator-001",
         "edge:start",
         "ALLOW",
-        "RELATIONSHIP_TRUE"
+        "POLICY_RELATIONSHIP_CONTEXT_SATISFIED"
     ),
     (
         "Viewer cannot start",
@@ -35,14 +35,14 @@ TEST_CASES = [
         "user:technician-001",
         "edge:maintain",
         "ALLOW",
-        "RELATIONSHIP_TRUE"
+        "POLICY_RELATIONSHIP_CONTEXT_SATISFIED"
     ),
     (
         "Viewer can read",
         "user:viewer-001",
         "edge:read",
         "ALLOW",
-        "RELATIONSHIP_TRUE"
+        "POLICY_RELATIONSHIP_CONTEXT_SATISFIED"
     ),
     (
         "Operator cannot maintain",
@@ -120,7 +120,7 @@ def run_tests():
             status == 200
             and actual_decision == expected_decision
             and actual_reason == expected_reason
-            and result.get("policy_version") == "v1"
+            and result.get("policy_version") == "v2"
         )
 
         if success:

@@ -7,9 +7,9 @@
     }
   ],
   "@type": "Set",
-  "uid": "urn:edge2cloud:policy:actuator-001:v1",
+  "uid": "urn:edge2cloud:policy:actuator-001:v2",
   "profile": "https://example.org/edge2cloud/odrl-profile/v1",
-  "edge:version": "v1",
+  "edge:version": "v2",
   "permission": [
     {
       "target": "device:actuator-001",
@@ -20,6 +20,18 @@
       "target": "device:actuator-001",
       "action": "edge:start",
       "edge:requiredRelation": "can_start",
+      "edge:requiredContext": [
+        {
+          "attribute": "state",
+          "operator": "eq",
+          "value": "IDLE"
+        },
+        {
+          "attribute": "temperature",
+          "operator": "lt",
+          "value": 70
+        }
+      ],
       "constraint": [
         {
           "leftOperand": "dateTime",

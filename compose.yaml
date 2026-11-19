@@ -124,15 +124,72 @@ services:
       - "127.0.0.1:8004:8000"
     environment:
       LOCAL_PIP_URL: http://pip-stage1:8000
+      DIGITAL_TWIN_URL: http://digital-twin:8000
+      DT_MAX_AGE_SECONDS: "10"
       POLICY_DIR: /app/policies
     volumes:
       - ./policies/odrl:/app/policies:ro
     depends_on:
       pip-stage1:
         condition: service_started
+      digital-twin:
+        condition: service_started
     networks:
       - edge-network
       - edge-host-access
+  
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: mvp-mqtt
+    volumes:
+      - ./infrastructure/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      - edge-network
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - mosquitto_sub -h 127.0.0.1 -p 1883 -t '$$SYS/broker/uptime' -C 1 -W 3 >/dev/null 2>&1
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  digital-twin:
+    build: ./edge/digital_twin
+    container_name: mvp-digital-twin
+    ports:
+      - "127.0.0.1:8005:8000"
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      DT_MAX_AGE_SECONDS: "10"
+      DT_STORAGE_TTL_SECONDS: "120"
+    depends_on:
+      mqtt:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - edge-network
+      - edge-host-access
+
+  iot-simulator:
+    build: ./edge/iot_simulator
+    container_name: mvp-iot-simulator
+    environment:
+      MQTT_HOST: mqtt
+      MQTT_PORT: "1883"
+      EDGE_ID: edge-001
+      DEVICE_ID: actuator-001
+      TELEMETRY_INTERVAL: "2"
+      DEVICE_STATE: IDLE
+      DEVICE_TEMPERATURE: "42.5"
+    depends_on:
+      digital-twin:
+        condition: service_started
+    networks:
+      - edge-network
 
 
 networks:
