@@ -85,13 +85,13 @@ services:
       - ""
       - --appendonly
       - "no"
-    networks:
-      - edge-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - edge-network
 
   pip-stage1:
     build: ./edge/pip_stage1
@@ -198,6 +198,71 @@ services:
       - edge-network
       - edge-host-access
 
+  kafka:
+    image: apache/kafka:4.1.2
+    container_name: mvp-kafka
+    hostname: kafka
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:29093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_LISTENERS: CONTROLLER://:29093,PLAINTEXT://:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      CLUSTER_ID: 4L6g3nShT-eMCtK--X86sw
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    networks:
+      - edge-network
+
+  auth-changes:
+    build: ./cloud/auth_changes
+    container_name: mvp-auth-changes
+    ports:
+      - "127.0.0.1:8007:8000"
+    environment:
+      FGA_URL: http://openfga:8080
+      FGA_STORE_ID: ${FGA_STORE_ID:?FGA_STORE_ID is required}
+      FGA_MODEL_ID: ${FGA_MODEL_ID:?FGA_MODEL_ID is required}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_AUTH_TOPIC: edge2cloud.auth.relationships.v1
+      REDIS_HOST: redis
+    depends_on:
+      openfga:
+        condition: service_started
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - cloud-network
+      - edge-network
+      - edge-host-access
+
+  cache-sync:
+    build: ./edge/cache_sync
+    container_name: mvp-cache-sync
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      KAFKA_AUTH_TOPIC: edge2cloud.auth.relationships.v1
+      REDIS_HOST: redis
+    depends_on:
+      kafka:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - edge-network
+
 
 networks:
 
@@ -217,3 +282,5 @@ networks:
 volumes:
 
   postgres_data:
+
+  kafka_data:

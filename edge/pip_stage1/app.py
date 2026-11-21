@@ -1,4 +1,16 @@
 
+"""Edge2Cloud Local PIP Stage 1.
+
+Authoritative relationship cache with:
+- Redis TTL
+- OpenFGA model version
+- Resource-scoped generation keys
+- Race-aware cache lookup and population
+
+This service returns evidence, not final
+authorization decisions.
+"""
+
 import hashlib
 import json
 import os
@@ -6,15 +18,13 @@ import time
 import urllib.error
 import urllib.request
 
-from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import (
+    BaseHTTPRequestHandler,
+    ThreadingHTTPServer
+)
 
 import redis
 
-
-# --------------------------------------------------
-# Configuration
-# --------------------------------------------------
 
 REDIS_HOST = os.getenv("REDIS_HOST", "redis")
 REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
@@ -24,58 +34,51 @@ CLOUD_PIP_URL = os.getenv(
     "http://cloud-service:8000"
 )
 
-MODEL_ID = os.environ["FGA_MODEL_ID"]
+CACHE_TTL = int(
+    os.getenv("CACHE_TTL_SECONDS", "5")
+)
 
-CACHE_TTL = int(os.getenv("CACHE_TTL_SECONDS", "5"))
+FGA_MODEL_ID = os.environ["FGA_MODEL_ID"]
 
-if CACHE_TTL <= 0:
-    raise ValueError("CACHE_TTL_SECONDS must be positive")
-
-# Redis client
 cache = redis.Redis(
     host=REDIS_HOST,
     port=REDIS_PORT,
     decode_responses=True,
-    socket_connect_timeout=2,
-    socket_timeout=2
+    socket_timeout=3
 )
 
-
-# --------------------------------------------------
-# Helpers
-# --------------------------------------------------
-
-def current_timestamp():
-    return datetime.now(timezone.utc).isoformat()
+MAX_REQUEST = 4096
 
 
-def make_cache_key(user, relation, resource):
-    """
-    Generate a stable cache key for one ReBAC
-    predicate and authorization model version.
-    """
+def get_generation(resource):
+    value = cache.get(
+        f"auth:epoch:{resource}"
+    )
 
-    data = json.dumps(
+    return int(value) if value is not None else 0
+
+
+def relationship_key(user, relation, resource, generation):
+    payload = json.dumps(
         {
             "user": user,
             "relation": relation,
             "resource": resource,
-            "model_version": MODEL_ID
+            "model_version": FGA_MODEL_ID,
+            "generation": generation
         },
-        sort_keys=True
+        sort_keys=True,
+        separators=(",", ":")
     )
 
-    digest = hashlib.sha256(data.encode()).hexdigest()
+    digest = hashlib.sha256(
+        payload.encode("utf-8")
+    ).hexdigest()
 
-    return f"rebac:evidence:{digest}"
+    return f"auth:rel:v9:{digest}"
 
 
-def fetch_cloud_relationship(user, relation, resource):
-    """
-    Fetch authoritative ReBAC information from
-    Cloud PIP Stage 2.
-    """
-
+def fetch_from_cloud(user, relation, resource):
     payload = {
         "user": user,
         "relation": relation,
@@ -83,241 +86,254 @@ def fetch_cloud_relationship(user, relation, resource):
     }
 
     request = urllib.request.Request(
-        url=f"{CLOUD_PIP_URL}/check-relationship",
+        f"{CLOUD_PIP_URL}/check-relationship",
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json"
+        },
         method="POST"
     )
 
     with urllib.request.urlopen(
         request,
-        timeout=5
+        timeout=7
     ) as response:
+        result = json.load(response)
 
-        result = json.loads(
-            response.read().decode("utf-8")
-        )
-
-    # Verify the authoritative response before caching.
     if (
-        result.get("source") != "openfga"
+        not isinstance(result, dict)
         or result.get("user") != user
         or result.get("relation") != relation
         or result.get("resource") != resource
-        or result.get("model_version") != MODEL_ID
+        or result.get("source") != "openfga"
         or type(result.get("allowed")) is not bool
+        or result.get("model_version") != FGA_MODEL_ID
     ):
         raise ValueError(
-            "Invalid authoritative relationship response"
+            "Cloud PIP returned invalid relationship evidence"
         )
 
     return result
 
 
-# --------------------------------------------------
-# PIP Stage 1
-# --------------------------------------------------
-
 def resolve_relationship(user, relation, resource):
-    """
-    Local-first relationship evidence resolution.
+    started = time.perf_counter()
 
-    1. Check Redis.
-    2. Return valid cached evidence.
-    3. On a miss, contact Cloud PIP Stage 2.
-    4. Cache the authoritative response with TTL.
+    # Retry if a Kafka event or direct mutation
+    # changes the resource generation mid-request.
+    for attempt in range(3):
+        generation = get_generation(resource)
 
-    This does NOT make a final authorization decision.
-    """
+        key = relationship_key(
+            user, relation, resource, generation
+        )
 
-    key = make_cache_key(user, relation, resource)
+        cached = cache.get(key)
 
-    # Stage 1: Local lookup
-    cached = cache.get(key)
+        if cached is not None:
+            evidence = json.loads(cached)
 
-    if cached is not None:
-        evidence = json.loads(cached)
+            if (
+                evidence.get("user") != user
+                or evidence.get("relation") != relation
+                or evidence.get("resource") != resource
+                or evidence.get("model_version") != FGA_MODEL_ID
+                or type(evidence.get("allowed")) is not bool
+            ):
+                raise ValueError("Invalid cached evidence")
 
-        if (
-            evidence.get("model_version") == MODEL_ID
-            and type(evidence.get("allowed")) is bool
-        ):
-            remaining_ttl = cache.ttl(key)
+            # Do not return evidence if invalidation
+            # happened during the Redis read.
+            if get_generation(resource) != generation:
+                continue
 
-            if remaining_ttl > 0:
-                return {
-                    **evidence,
-                    "cache_hit": True,
-                    "cloud_fallback": False,
-                    "cache_ttl_remaining": remaining_ttl
-                }
+            return {
+                **evidence,
+                "source": "openfga",
+                "cache_hit": True,
+                "cloud_fallback": False,
+                "cache_ttl_seconds": cache.ttl(key),
+                "cache_generation": generation,
+                "pip_latency_ms": round(
+                    (time.perf_counter() - started) * 1000,
+                    3
+                )
+            }
 
-        # Reject inconsistent or expired cache entries.
-        cache.delete(key)
+        evidence = fetch_from_cloud(
+            user, relation, resource
+        )
 
-    # Stage 2: Authoritative cloud fallback
-    cloud_result = fetch_cloud_relationship(
-        user, relation, resource
+        # If a mutation occurred during the cloud
+        # lookup, discard this result and retry.
+        if get_generation(resource) != generation:
+            continue
+
+        value = {
+            "user": user,
+            "relation": relation,
+            "resource": resource,
+            "allowed": evidence["allowed"],
+            "source": "openfga",
+            "model_version": FGA_MODEL_ID,
+            "retrieved_at": time.time()
+        }
+
+        cache.setex(
+            key,
+            CACHE_TTL,
+            json.dumps(value)
+        )
+
+        # Check once more after the cache write.
+        # The old generation key becomes unreachable
+        # after an invalidation event.
+        if get_generation(resource) != generation:
+            continue
+
+        return {
+            **value,
+            "cache_hit": False,
+            "cloud_fallback": True,
+            "cache_ttl_seconds": CACHE_TTL,
+            "cache_generation": generation,
+            "pip_latency_ms": round(
+                (time.perf_counter() - started) * 1000,
+                3
+            )
+        }
+
+    raise RuntimeError(
+        "Relationship generation changed repeatedly"
     )
 
-    evidence = {
-        "source": "openfga",
-        "user": user,
-        "relation": relation,
-        "resource": resource,
-        "allowed": cloud_result["allowed"],
-        "model_version": MODEL_ID,
-        "retrieved_at": current_timestamp()
-    }
-
-    # Bounded local reuse of verified evidence
-    cache.setex(
-        key,
-        CACHE_TTL,
-        json.dumps(evidence)
-    )
-
-    return {
-        **evidence,
-        "cache_hit": False,
-        "cloud_fallback": True,
-        "cache_ttl_remaining": CACHE_TTL
-    }
-
-
-# --------------------------------------------------
-# HTTP API
-# --------------------------------------------------
 
 class Handler(BaseHTTPRequestHandler):
 
+    def send_json(self, value, status=200):
+        body = json.dumps(value).encode("utf-8")
+
+        self.send_response(status)
+        self.send_header(
+            "Content-Type", "application/json"
+        )
+        self.send_header(
+            "Content-Length", str(len(body))
+        )
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
-
-        if self.path == "/health":
-            try:
-                cache.ping()
-
-                self.send_json({
-                    "service": "edge-pip-stage1",
-                    "status": "running",
-                    "redis": "connected"
-                })
-
-            except redis.RedisError:
-                self.send_json(
-                    {"error": "Redis unavailable"},
-                    status=503
-                )
-
-        else:
+        if self.path != "/health":
             self.send_json(
-                {"error": "Not found"},
-                status=404
-            )
-
-    def do_POST(self):
-
-        if self.path != "/resolve-relationship":
-            self.send_json(
-                {"error": "Not found"},
-                status=404
+                {"error": "not found"},
+                404
             )
             return
 
-        start = time.perf_counter()
+        try:
+            cache.ping()
+
+            self.send_json({
+                "service": "edge-pip-stage1",
+                "status": "running",
+                "redis": "connected"
+            })
+
+        except redis.RedisError:
+            self.send_json(
+                {"error": "Redis unavailable"},
+                503
+            )
+
+    def do_POST(self):
+        if self.path != "/resolve-relationship":
+            self.send_json(
+                {"error": "not found"},
+                404
+            )
+            return
 
         try:
             length = int(
-                self.headers.get("Content-Length", "0")
-            )
-
-            if length <= 0 or length > 65536:
-                self.send_json(
-                    {"error": "Invalid request size"},
-                    status=400
+                self.headers.get(
+                    "Content-Length", "0"
                 )
-                return
-
-            body = self.rfile.read(length)
-            data = json.loads(body)
-
-            if not isinstance(data, dict):
-                raise ValueError("Expected JSON object")
-
-            for field in ("user", "relation", "resource"):
-                value = data.get(field)
-
-                if not isinstance(value, str) or not value:
-                    raise ValueError(
-                        f"Invalid or missing field: {field}"
-                    )
-
-            result = resolve_relationship(
-                user=data["user"],
-                relation=data["relation"],
-                resource=data["resource"]
             )
 
-            result["pip_latency_ms"] = round(
-                (time.perf_counter() - start) * 1000,
-                3
+            if not 0 < length <= MAX_REQUEST:
+                raise ValueError("Invalid request size")
+
+            payload = json.loads(
+                self.rfile.read(length)
+            )
+
+            if (
+                not isinstance(payload, dict)
+                or set(payload) != {
+                    "user", "relation", "resource"
+                }
+            ):
+                raise ValueError("Invalid relationship request")
+
+            user = payload["user"]
+            relation = payload["relation"]
+            resource = payload["resource"]
+
+            if (
+                not isinstance(user, str)
+                or not user.startswith("user:")
+                or len(user) > 128
+                or not isinstance(relation, str)
+                or relation not in (
+                    "can_read",
+                    "can_start",
+                    "can_maintain"
+                )
+                or not isinstance(resource, str)
+                or not resource.startswith("device:")
+                or len(resource) > 128
+            ):
+                raise ValueError("Invalid relationship identifiers")
+
+        except (
+            ValueError,
+            TypeError,
+            json.JSONDecodeError
+        ) as exc:
+            self.send_json({
+                "error": str(exc)
+            }, 400)
+            return
+
+        try:
+            result = resolve_relationship(
+                user, relation, resource
             )
 
             self.send_json(result)
 
         except (
-            ValueError,
-            json.JSONDecodeError
-        ) as error:
-            self.send_json(
-                {"error": str(error)},
-                status=400
-            )
-
-        except redis.RedisError:
-            self.send_json(
-                {"error": "Local Redis cache unavailable"},
-                status=503
-            )
-
-        except (
+            redis.RedisError,
             urllib.error.URLError,
-            TimeoutError
-        ):
-            self.send_json(
-                {
-                    "error": "Authoritative cloud unavailable",
-                    "status": "INDETERMINATE"
-                },
-                status=503
+            TimeoutError,
+            OSError,
+            ValueError,
+            RuntimeError
+        ) as exc:
+            print(
+                f"PIP evidence error: {exc}",
+                flush=True
             )
 
-        except Exception:
-            self.send_json(
-                {"error": "Internal service error"},
-                status=500
-            )
-
-    def send_json(self, data, status=200):
-        body = json.dumps(data).encode("utf-8")
-
-        self.send_response(status)
-        self.send_header(
-            "Content-Type",
-            "application/json"
-        )
-        self.send_header(
-            "Content-Length",
-            str(len(body))
-        )
-        self.end_headers()
-        self.wfile.write(body)
+            self.send_json({
+                "error": "Relationship evidence unavailable"
+            }, 503)
 
 
 if __name__ == "__main__":
-
     print(
-        "PIP Stage 1 starting...",
+        "Edge PIP Stage 1 starting...",
         flush=True
     )
 
