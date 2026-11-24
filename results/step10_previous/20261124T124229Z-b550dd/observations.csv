@@ -1,0 +1,4 @@
+run_id,timestamp_utc,scenario,cohort,request_index,concurrency,http_status,expected_decision,actual_decision,correct,latency_ms,cache_hit,cloud_fallback,cache_generation,prefetch_status,relation,notes
+20261124T124229Z-b550dd,2026-11-24T12:42:35.269564+00:00,pip_cache,cold,1,1,200,,,,26.4757,False,True,2,,can_read,TTL=5.0s
+20261124T124229Z-b550dd,2026-11-24T12:42:35.270770+00:00,pip_cache,warm,1,1,200,,,,1.1471,True,False,2,,can_read,TTL=5.0s
+20261124T124229Z-b550dd,2026-11-24T12:42:39.943444+00:00,pip_cache,cold,2,1,200,,,,2.7879,True,False,2,,can_read,TTL=5.0s

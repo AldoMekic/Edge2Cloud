@@ -1,0 +1,241 @@
+{
+  "metadata": {
+    "run_id": "20261124T130626Z-644a5d",
+    "arguments": {
+      "cache_pairs": 10,
+      "requests": 120,
+      "workers": "1,4,8",
+      "prefetch_rounds": 5,
+      "cache_ttl": 5.0
+    },
+    "timestamp_utc": "2026-11-24T13:06:26.669092+00:00",
+    "test_user": "user:step9-bench-158ab63117",
+    "platform": "Linux-6.6.87.2-microsoft-standard-WSL2-x86_64-with-glibc2.39",
+    "python_version": "3.12.3",
+    "docker_compose_ps": "NAME                IMAGE                                                                     COMMAND                  SERVICE         CREATED       STATUS                    PORTS\nmvp-ai-prefetch     sha256:982ad8acc153724854a31b548dd3a7dbc3a696c3ce97da4904883dbd2a3e96f0   \"python -u app.py\"       ai-prefetch     4 days ago    Up 29 minutes             127.0.0.1:8006->8000/tcp\nmvp-auth-changes    edge-authorization-mvp-auth-changes                                       \"python -u app.py\"       auth-changes    2 days ago    Up 28 minutes             127.0.0.1:8007->8000/tcp\nmvp-cache-sync      edge-authorization-mvp-cache-sync                                         \"python -u app.py\"       cache-sync      2 days ago    Up 29 minutes             \nmvp-cloud           sha256:3bdb944178978d6b7e1e517ade36c3b8ca5a0b0554c42fadee61afeee155f991   \"python app.py\"          cloud-service   12 days ago   Up 29 minutes             127.0.0.1:8002->8000/tcp\nmvp-digital-twin    sha256:edbe31bf5baf1213bd52a235e4f2a37dfda331ce8d5e9efde08561c31fe22f92   \"python -u app.py\"       digital-twin    4 days ago    Up 29 minutes             127.0.0.1:8005->8000/tcp\nmvp-edge            sha256:34cc5a4b8930cc11f587491131640abf6aa88332d78b45f6c18a9aaf96da5258   \"python app.py\"          edge-service    2 weeks ago   Up 29 minutes             127.0.0.1:8001->8000/tcp\nmvp-iot-simulator   sha256:86c4035c3a1f4645d2d35551183e9306841739bedb30a680e5c9b1194c519f73   \"python -u app.py\"       iot-simulator   4 days ago    Up 29 minutes             \nmvp-kafka           apache/kafka:4.1.2                                                        \"/__cacert_entrypoin\u2026\"   kafka           2 days ago    Up 29 minutes             9092/tcp\nmvp-local-pdp       sha256:ccc55429e85d3a3b46dc9868cbad59ed140d3b4a207d4518dbe8e69000dfd3ef   \"python -u app.py\"       local-pdp       4 days ago    Up 29 minutes             127.0.0.1:8004->8000/tcp\nmvp-mqtt            eclipse-mosquitto:2                                                       \"/docker-entrypoint.\u2026\"   mqtt            4 days ago    Up 29 minutes             1883/tcp\nmvp-openfga         openfga/openfga:v1.20.0                                                   \"/openfga run\"           openfga         2 weeks ago   Up 29 minutes             127.0.0.1:8080->8080/tcp\nmvp-pip-stage1      edge-authorization-mvp-pip-stage1                                         \"python -u app.py\"       pip-stage1      2 days ago    Up 29 minutes             127.0.0.1:8003->8000/tcp\nmvp-postgres        postgres:17                                                               \"docker-entrypoint.s\u2026\"   postgres        2 weeks ago   Up 29 minutes (healthy)   5432/tcp\nmvp-redis           redis:7.4-alpine                                                          \"docker-entrypoint.s\u2026\"   redis           11 days ago   Up 29 minutes (healthy)   6379/tcp\n",
+    "ai_metrics": {
+      "service": "ai-prefetch",
+      "metrics": {
+        "observations": 5196,
+        "predictions": 86,
+        "prefetch_attempts": 86,
+        "prefetch_successes": 86,
+        "prefetch_failures": 0,
+        "prefetch_cache_hits": 13,
+        "skipped": 5110
+      },
+      "training": {
+        "dataset": "synthetic",
+        "accuracy": 0.842,
+        "balanced_accuracy": 0.6624739666218401,
+        "majority_baseline_accuracy": 0.7413333333333333
+      }
+    },
+    "resource": "device:actuator-001",
+    "cache_ttl_assumed_seconds": 5,
+    "note": "Single-host local Docker experiment",
+    "initial_digital_twin": {
+      "device_id": "actuator-001",
+      "edge_id": "edge-001",
+      "boot_id": "4219f8a4-18d8-47cd-9fee-16a53044abbe",
+      "sequence": 891,
+      "state": "IDLE",
+      "temperature": 42.5,
+      "safety_status": "SAFE",
+      "source_timestamp": "2026-11-24T13:06:26.419087+00:00",
+      "received_at": "2026-11-24T13:06:26.419507+00:00",
+      "source": "mqtt:dt/edge-001/actuator-001/telemetry",
+      "age_seconds": 0.07,
+      "freshness": "FRESH"
+    }
+  },
+  "phases": {
+    "grant": {
+      "latency_ms": 4.956856,
+      "generation": 207
+    },
+    "cache": {
+      "cold": {
+        "requests": 10,
+        "http_errors": 0,
+        "correct_decisions": 0,
+        "evaluated_decisions": 0,
+        "mean_ms": 4.1307,
+        "median_ms": 4.177,
+        "p95_ms": 4.3038,
+        "p99_ms": 4.3038,
+        "min_ms": 3.9292,
+        "max_ms": 4.3038
+      },
+      "warm": {
+        "requests": 10,
+        "http_errors": 0,
+        "correct_decisions": 0,
+        "evaluated_decisions": 0,
+        "mean_ms": 1.1268,
+        "median_ms": 1.1235,
+        "p95_ms": 1.2176,
+        "p99_ms": 1.2176,
+        "min_ms": 1.0488,
+        "max_ms": 1.2176
+      },
+      "warm_cache_hit_rate": 1.0
+    },
+    "load": {
+      "1": {
+        "requests": 120,
+        "http_errors": 0,
+        "correct_decisions": 120,
+        "evaluated_decisions": 120,
+        "mean_ms": 2.3161,
+        "median_ms": 2.2679,
+        "p95_ms": 2.517,
+        "p99_ms": 2.8882,
+        "min_ms": 2.0367,
+        "max_ms": 5.1332,
+        "wall_seconds": 0.2854,
+        "throughput_rps": 420.414
+      },
+      "4": {
+        "requests": 120,
+        "http_errors": 0,
+        "correct_decisions": 120,
+        "evaluated_decisions": 120,
+        "mean_ms": 6.1881,
+        "median_ms": 6.0218,
+        "p95_ms": 8.6811,
+        "p99_ms": 9.2567,
+        "min_ms": 3.1547,
+        "max_ms": 9.4638,
+        "wall_seconds": 0.1895,
+        "throughput_rps": 633.104
+      },
+      "8": {
+        "requests": 120,
+        "http_errors": 0,
+        "correct_decisions": 120,
+        "evaluated_decisions": 120,
+        "mean_ms": 11.612,
+        "median_ms": 11.4205,
+        "p95_ms": 16.2352,
+        "p99_ms": 17.2404,
+        "min_ms": 4.9959,
+        "max_ms": 18.8583,
+        "wall_seconds": 0.1801,
+        "throughput_rps": 666.198
+      }
+    },
+    "prefetch": {
+      "status": "completed",
+      "fixed_relation": "can_start",
+      "rounds": [
+        {
+          "round": 1,
+          "relation": "can_start",
+          "baseline_latency_ms": 2.389102,
+          "baseline_cache_hit": true,
+          "ai_request_latency_ms": 10.40744,
+          "prefetch_status": "success",
+          "prediction_confidence": 0.681419,
+          "predicted_relation_matched": true,
+          "followup_latency_ms": 1.310749,
+          "followup_cache_hit": true,
+          "authoritative_result_matches": true,
+          "http_statuses": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "round": 2,
+          "relation": "can_start",
+          "baseline_latency_ms": 5.116089,
+          "baseline_cache_hit": false,
+          "ai_request_latency_ms": 12.490296,
+          "prefetch_status": "success",
+          "prediction_confidence": 0.681419,
+          "predicted_relation_matched": true,
+          "followup_latency_ms": 1.19946,
+          "followup_cache_hit": true,
+          "authoritative_result_matches": true,
+          "http_statuses": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "round": 3,
+          "relation": "can_start",
+          "baseline_latency_ms": 4.61181,
+          "baseline_cache_hit": false,
+          "ai_request_latency_ms": 8.126987,
+          "prefetch_status": "success",
+          "prediction_confidence": 0.681419,
+          "predicted_relation_matched": true,
+          "followup_latency_ms": 1.063569,
+          "followup_cache_hit": true,
+          "authoritative_result_matches": true,
+          "http_statuses": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "round": 4,
+          "relation": "can_start",
+          "baseline_latency_ms": 4.685473,
+          "baseline_cache_hit": false,
+          "ai_request_latency_ms": 10.046035,
+          "prefetch_status": "success",
+          "prediction_confidence": 0.681419,
+          "predicted_relation_matched": true,
+          "followup_latency_ms": 1.4901,
+          "followup_cache_hit": true,
+          "authoritative_result_matches": true,
+          "http_statuses": [
+            200,
+            200,
+            200
+          ]
+        },
+        {
+          "round": 5,
+          "relation": "can_start",
+          "baseline_latency_ms": 4.757971,
+          "baseline_cache_hit": false,
+          "ai_request_latency_ms": 11.277812,
+          "prefetch_status": "success",
+          "prediction_confidence": 0.681419,
+          "predicted_relation_matched": true,
+          "followup_latency_ms": 1.283955,
+          "followup_cache_hit": true,
+          "authoritative_result_matches": true,
+          "http_statuses": [
+            200,
+            200,
+            200
+          ]
+        }
+      ],
+      "note": "Controlled evidence-reuse demonstration, not a real-workload prefetch hit-rate estimate"
+    },
+    "revocation": {
+      "mutation_api_latency_ms": 6.066744,
+      "api_elapsed_from_start_ms": 6.13271900010659,
+      "deny_observed_from_start_ms": 12.504295000098864,
+      "kafka_event_seen": true,
+      "kafka_observed_from_start_ms": 143.16802899998038,
+      "epoch_before": "218",
+      "epoch_after": "220",
+      "post_revoke_pip_allowed": false,
+      "post_revoke_pip_cache_hit": false,
+      "post_revoke_pdp_decision": "DENY",
+      "event_id": "8103eabf-1f7a-4e8f-91cb-04c007c5e20f",
+      "note": "Times include control-plane/API and client observation overhead. Kafka propagation is not measured independently."
+    }
+  },
+  "error": null
+}

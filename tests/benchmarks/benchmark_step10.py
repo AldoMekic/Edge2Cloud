@@ -365,15 +365,24 @@ def grant_test_identity():
 
     print(f"  Test identity granted: {USER}")
 
-
 def experiment_cache(pairs, ttl):
     print("\n[2] Cold versus warm PIP cache")
 
     results = []
 
     for cycle in range(1, pairs + 1):
-        # Allow the five-second relationship TTL to expire.
-        time.sleep(ttl + 0.3)
+        # Force a fresh cache generation before each pair.
+        subprocess.run(
+            [
+                "docker", "compose", "exec", "-T",
+                "redis", "redis-cli",
+                "INCR", f"auth:epoch:{RESOURCE}"
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True
+        )
 
         for cohort in ("cold", "warm"):
             status, response, latency = request(
@@ -430,12 +439,12 @@ def experiment_cache(pairs, ttl):
         PHASE_RESULTS["cache"]["cold"]["median_ms"],
         "ms"
     )
+
     print(
         "  Warm median:",
         PHASE_RESULTS["cache"]["warm"]["median_ms"],
         "ms"
     )
-
 
 def one_pdp_request(index):
     # Deterministic 75% allowed, 25% denied mix.
